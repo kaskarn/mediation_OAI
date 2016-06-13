@@ -78,12 +78,7 @@ rint_w <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, ref = 0, treat =
   ###Create referent indicator A = a*
   dat$aref <- as.integer(dat[[X]] == levels(dat[[X]])[1])
   ref <- levels(dat[[X]])[1]
-  
-  ###duplicate dataset for each category of exposure
-  dat <- do.call(rbind, lapply(1:length(levels(d2[[X]])), function(i) mutate(dat, astar = i - 1))) %>% 
-         mutate(astar = factor(astar, labels = levels(dat[[X]])))
-  N <- nrow(dat)
-  
+
   ###replicate input with parentheses
   for(i in c("X","M","Y","C", "L")) assign(paste0(i, "2"), paste0("(",get(i),")"))
   
@@ -95,27 +90,24 @@ rint_w <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, ref = 0, treat =
   a_pro <- predict(object = a_mod, newdata = dat, "probs") %>% fmatch(dat[[X]])
   
   # p(m |l, a, c)
-  m_form1 <- as.formula(paste0(M, "~", paste(X, paste0(L2, collapse = "+"), paste0(C2, collapse = "+"), sep = "+")))
-  m_mod1 <- multinom(data = dat, m_form1, trace = FALSE)
-  m_pro1 <- predict(object = m_mod1, newdata = dat, "probs") %>% fmatch(dat[[M]])
+  m_form <- as.formula(paste0(M, "~", paste(X, paste0(L2, collapse = "+"), paste0(C2, collapse = "+"), sep = "+")))
+  m_mod <- multinom(data = dat, m_form1, trace = FALSE)
+  m_pro <- predict(object = m_mod1, newdata = dat, "probs") %>% fmatch(dat[[M]])
 
-  den <- a_pro * m_pro1
+  den <- a_pro * m_pro
   
   ## numerator
-  # p(m | l, a*, c)
-  m_form2 <- as.formula(paste0(M, "~", L2, "+ astar +", paste0(C2, collapse = "+")))
-  m_mod2 <- multinom(data = dat, m_form2, trace = FALSE)
-  
   # p(l | a*, c)
-  l_form <- as.formula(paste0(L2, "~", "astar +", paste0(C2, collapse = "+")))
+  l_form <- as.formula(paste0(L2, "~", X, "+", paste0(C2, collapse = "+")))
   l_mod <- multinom(data = dat, l_form, trace = FALSE)
-  l_pro <- predict(object = l_mod, newdata = dat, "probs")
+  l_pro <- predict(object = l_mod, newdata = mutate_(dat, .dots = setNames(list(~ref), X)), "probs")
   
   # math to get numerator
   num <- lapply(levels(dat[[L]]), function (i) {
             m_pro2 <- predict(
-                  object = m_mod2, 
-                  newdata = mutate_(dat, .dots = setNames(list(~i), L)),
+                  object = m_mod, 
+                  newdata = mutate_(dat, .dots = setNames(list(~i), L)) %>% 
+                            mutate_(., .dots = setNames(list(~ref), X)),
                   "probs"
                 ) %>% fmatch(dat[[M]])
             tmres <- m_pro2 * l_pro[,match(i, levels(dat[[L]]))]
@@ -123,8 +115,21 @@ rint_w <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, ref = 0, treat =
             ) %>% do.call(cbind, .) %>% apply(., 1, sum)
   
   #get weight
-  if(stable){ w <- num/den * ((table(dat[[X]])/N)[match(dat[[X]], levels(dat[[X]]))])
-  }else w <- num / den  
+  if(stable){ dat$w <- num/den * ((table(dat[[X]])/nrow(dat))[match(dat[[X]], levels(dat[[X]]))])
+  }else w <- dat$num / den  
+  
+    
+  ###duplicate dataset for each category of exposure
+  dat <- do.call(rbind, lapply(1:length(levels(d2[[X]])), function(i) mutate(dat, astar = i - 1))) %>% 
+         mutate(astar = factor(astar, labels = levels(dat[[X]])))
+  
+#   N <- nrow(dat)
+#   dat2 <- dat
+#   dat2$astar <- dat[[X]]
+#   dat$astar = NA
+#   dat <- rbind(dat2, dat)
+#   dat[is.na(dat$astar),"astar"] <- levels(dat[[X]])[1]
+  
   
   ### direct effect
   nde_mod <- lm(data = dat[dat$astar == ref,], get(Y) ~ get(X), weights = w[dat$astar == ref])
