@@ -8,11 +8,17 @@ whichtimes <- function (stub, data = df, plen = 3){
   grep(paste0(stub, "$"), colnames(data), value = TRUE) %>%
     substring(., 2, 3) %>% as.numeric(.)
 }
-
+fmatch <- function(v, x, l = -1, mat = FALSE){
+  #replaces syntax of type [cbind(1:nrow(dat),match(dat[[M]], levels(dat[[M]])))]
+    if(!is.factor(x)) stop("Must be factor variable")
+    if(l == -1) l <- length(x)
+    if(mat){return(cbind(1:l,match(x, levels(x))))
+    }else return(v[cbind(1:l,match(x, levels(x)))])
+}
 ## Twoway decomposition indirect and direct effects  (VDW)
  #for continuous mediator and outcome
 
-twoway.cont.cont <- function(df, X, M, Y, C = "", xlen = 0, mlen = 0, noint = FALSE, ref = 0, treat = 1, mlvl = NULL, delta = FALSE){
+twoway.cont.cont <- function(df, X, M, Y, C = "", xlen = 0, mlen = 0, noint = FALSE, mlvl = NULL, delta = FALSE){
   #sets position and lengths of coefficient vectors
   if(xlen == 0) if(is.factor(df[[X]])) xlen <- levels(df[[X]]) %>% length - 1 else xlen <- 1
   if(mlen == 0) if(is.factor(df[[M]])) mlen <- levels(df[[M]]) %>% length - 1 else mlen <- 1
@@ -40,7 +46,7 @@ twoway.cont.cont <- function(df, X, M, Y, C = "", xlen = 0, mlen = 0, noint = FA
   for(i in 1:4) assign(paste0("t",i), c(m2$coefficients, rep(0,xlen*mlen*noint))[(p2[i]+1):p2[i+1]] %>% unname)
   for(i in 1:2) assign(paste0("b",i), m1$coefficients[(p1[i]+1):p1[i+1]] %>% unname)
   
-  #output results, optionally with direct effects
+  #output results, optionally with controlled direct effects
   out <- list(
     nde = (t1 + t4*b0 + t4*b1*ref + t4*b2%*%c_mu)*(treat - ref),
     nie = (t2*b1 + t4*b1*treat)*(treat - ref),
@@ -56,7 +62,7 @@ twoway.cont.cont <- function(df, X, M, Y, C = "", xlen = 0, mlen = 0, noint = FA
       rbind(vcov(m2), matrix(0, length(m1$coefficients), length(m2$coefficients)))
     )
     #same for Gamma
-    gamma <- list(
+    gamma <- list(  
       nde = c(t4, t4*ref, t4*c_mu, 0, 1, 0, b0 + b1*ref + b2%*%c_mu, rep(0, length(c_mu))),
       nie = c(0, t2 + t4*treat, rep(0, length(c_mu)), 0, 0, b1, b1*treat, rep(0, length(c_mu)))
     )
@@ -67,10 +73,75 @@ twoway.cont.cont <- function(df, X, M, Y, C = "", xlen = 0, mlen = 0, noint = FA
   #end
   return(list(out = out, se = se))
 }
+
+rint_w <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, ref = 0, treat = 1, stable = TRUE){
+  ###Create referent indicator A = a*
+  dat$aref <- as.integer(dat[[X]] == levels(dat[[X]])[1])
+  ref <- levels(dat[[X]])[1]
+  
+  ###duplicate dataset for each category of exposure
+  dat <- do.call(rbind, lapply(1:length(levels(d2[[X]])), function(i) mutate(dat, astar = i - 1))) %>% 
+         mutate(astar = factor(astar, labels = levels(dat[[X]])))
+  N <- nrow(dat)
+  
+  ###replicate input with parentheses
+  for(i in c("X","M","Y","C", "L")) assign(paste0(i, "2"), paste0("(",get(i),")"))
+  
+  ### Compute weights
+  ## denominator
+  # p(a | c)
+  a_form <- as.formula(paste0(X, "~", paste0(C2, collapse = "+")))
+  a_mod <- multinom(data = dat, a_form, trace = FALSE)
+  a_pro <- predict(object = a_mod, newdata = dat, "probs") %>% fmatch(dat[[X]])
+  
+  # p(m |l, a, c)
+  m_form1 <- as.formula(paste0(M, "~", paste(X, paste0(L2, collapse = "+"), paste0(C2, collapse = "+"), sep = "+")))
+  m_mod1 <- multinom(data = dat, m_form1, trace = FALSE)
+  m_pro1 <- predict(object = m_mod1, newdata = dat, "probs") %>% fmatch(dat[[M]])
+
+  den <- a_pro * m_pro1
+  
+  ## numerator
+  # p(m | l, a*, c)
+  m_form2 <- as.formula(paste0(M, "~", L2, "+ astar +", paste0(C2, collapse = "+")))
+  m_mod2 <- multinom(data = dat, m_form2, trace = FALSE)
+  
+  # p(l | a*, c)
+  l_form <- as.formula(paste0(L2, "~", "astar +", paste0(C2, collapse = "+")))
+  l_mod <- multinom(data = dat, l_form, trace = FALSE)
+  l_pro <- predict(object = l_mod, newdata = dat, "probs")
+  
+  # math to get numerator
+  num <- lapply(levels(dat[[L]]), function (i) {
+            m_pro2 <- predict(
+                  object = m_mod2, 
+                  newdata = mutate_(dat, .dots = setNames(list(~i), L)),
+                  "probs"
+                ) %>% fmatch(dat[[M]])
+            tmres <- m_pro2 * l_pro[,match(i, levels(dat[[L]]))]
+            }
+            ) %>% do.call(cbind, .) %>% apply(., 1, sum)
+  
+  #get weight
+  if(stable){ w <- num/den * ((table(dat[[X]])/N)[match(dat[[X]], levels(dat[[X]]))])
+  }else w <- num / den  
+  
+  ### direct effect
+  nde_mod <- lm(data = dat[dat$astar == ref,], get(Y) ~ get(X), weights = w[dat$astar == ref])
+  nie_mod <-lm(data = dat[dat[[X]] != ref,], get(Y) ~ astar, weights = w[dat[[X]] != ref])
+}
+
+X <- exposure
+M <- "obcat"
+Y <- "hspss"
+L <- "smoker"
+test <- twoway.cont.cont(xs, X = "exposure", M = "bmi", Y = "hspss", C = confounders, mlvl = 25:30, noint = FALSE)
+
 test <- twoway.cont.cont(xs, X = "exposure", M = "bmi", Y = "hspss", C = confounders, mlvl = 25:30, noint = FALSE)
 
 X <- "bmi"
 M <- "hsmss"
+C <- confounders
 
 ## threeway decomposition
 # output is vector of length equal to number of categories of outcome, minus 1 
@@ -92,7 +163,7 @@ meta <- c("id", "version")
 xsec <- c("p01sxkoa", "p02sex", "p02race", "v00edcv", "v00income")
 long <- lapply(c("hsmss$", "bmi$", "w20mpace$", "w400mtim$", "^...age", "hspss$", "^...smoker$", "smkpkyr"), function (i) grep(i, colnames(df), value = TRUE))
 outc <- c("v99elxioa", "v99erxioa", "v99rntcnt", "v99eddcf")
-d2 <- df[c(meta, xsec, unlist(long))]
+d2 <- df[c(meta, xsec, unlist(long))][df$p01sxkoa != 0,]
 
 ##### Data fixes and reformats
 # all discrete ints to factor
@@ -133,11 +204,6 @@ confounders <- c("age", "p02sex", "p02race", "agesq", "a_ra", "a2_ra", "a_se", "
 exposure <- "v00edcv"
 xlen <- levels(d2[[exposure]]) %>% length - 1
 
-
-test <- twoway.cont.cont(xs, X = exposure, M = "bmi", Y = "w20mpace", C = confounders)
-test <- twoway.cont.cont(xs, X = exposure, M = "hsmss", Y = "w20mpace", C = confounders)
-
-
 set.seed(0808)
 
 ##### Cross sectional analyses #####
@@ -170,7 +236,7 @@ for(i in 1:bnum){
   tsamp <- sample_frac(d2, 1, replace = TRUE) %>% group_by(id) %>% mutate(tok = row_number())
   
   ## Impute
-  t_imp <- mice(tsamp, m = 1, maxit = 1, print = FALSE,
+  t_imp <- mice(tsamp, m = 1, maxit = 5, 
                 pred=quickpred(tsamp,  include = c("v00age", "p02sex", "p02race"), exclude = meta)) %>%
                 complete(., action = "long", include = FALSE)
   ## Convert to long
