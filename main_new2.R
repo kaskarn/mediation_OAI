@@ -3,12 +3,10 @@ library(foreign); library(dplyr)
 library(reshape2); library(ipw)
 library(foreach); library(nnet)
 
+#load data and format
+source("load_data.R")
 
-whichtimes <- function (stub, data = df, plen = 3){
-  ## Summarizes data availability (for exploration)
-  grep(paste0(stub, "$"), colnames(data), value = TRUE) %>%
-    substring(., 2, 3) %>% as.numeric(.)
-}
+#### utility functons
 fmatch <- function(v, x, l = -1, mat = FALSE){
   #replaces syntax of type [cbind(1:nrow(dat),match(dat[[M]], levels(dat[[M]])))]
     if(!is.factor(x)) stop("Must be factor variable")
@@ -19,6 +17,13 @@ fmatch <- function(v, x, l = -1, mat = FALSE){
     if(mat){return(cbind(1:l,match(x, levels(x))))
     }else return(v[cbind(1:l,match(x, levels(x)))])
 }
+whichtimes <- function (stub, data = df, plen = 3){
+  ## Summarizes data availability (for exploration)
+  grep(paste0(stub, "$"), colnames(data), value = TRUE) %>%
+    substring(., 2, 3) %>% as.numeric(.)
+}
+
+#### Functions based on vdw book
 twoway.cont.cont <- function(df, X, M, Y, C = "", xlen = 0, mlen = 0, noint = FALSE, mlvl = NULL, delta = FALSE){
   ## Twoway decomposition indirect and direct effects  (VDW)
   #for continuous mediator and outcome
@@ -78,7 +83,7 @@ twoway.cont.cont <- function(df, X, M, Y, C = "", xlen = 0, mlen = 0, noint = FA
   #end
   return(list(out = out, se = se))
 }
-rint_w <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, stable = TRUE){
+rint_w <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, stable = FALSE){
   # Random interventional analogue to natural direct and indirect effects
   
   ###Create referent indicator A = a*
@@ -119,14 +124,15 @@ rint_w <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, stable = TRUE){
                     ) %>% fmatch(dat[[M]]) * l_pro[,match(i, levels(dat[[L]]))]
                 }) %>% do.call(cbind, .) %>% apply(., 1, sum)
   
-  #get weight
-  if(stable){ dat$w <- num/den * ((table(dat[[X]])/nrow(dat))[match(dat[[X]], levels(dat[[X]]))])
+  #get weight, stabilized if needed (actually not required)
+  if(stable){ 
+    dat$w <- num/den * ((table(dat[[X]])/nrow(dat))[match(dat[[X]], levels(dat[[X]]))])
   }else dat$w <- num/den  
 
   ###duplicate dataset for each category of exposure
-  dat <- do.call(rbind, lapply(1:length(levels(d2[[X]])), function(i) mutate(dat, astar = i - 1))) %>% 
-         mutate(astar = factor(astar, labels = levels(dat[[X]])))
-  
+  dat <- do.call(rbind, lapply(1:length(levels(d2[[X]])), 
+                               function(i) mutate(dat, astar = i - 1))
+                 ) %>% mutate(astar = factor(astar, labels = levels(dat[[X]])))
   ### direct effect
   nde_mod <- lm(data = dat[dat$astar == ref,], get(Y) ~ get(X), weights = w)
   nie_mod <-lm(data = dat[dat[[X]] != ref,], get(Y) ~ astar, weights = w)
@@ -135,25 +141,7 @@ rint_w <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, stable = TRUE){
   return(list(nde = nde_mod$coefficients, nie = nie_mod$coefficients))
 }
 
-
-##### TESTING AREA 
-X <- exposure
-X <- "ed2"
-M <- "obcat"
-Y <- "hspss"
-L <- "smoker"
-
-test <- rint_w(xs, X = "ed2", M = "obcat", Y = "hspss", C = confounders, L = "smoker")
-
-X <- "bmi"
-M <- "hsmss"
-C <- confounders
-
-test <- twoway.cont.cont(xs, X = "exposure", M = "bmi", Y = "hspss", C = confounders, mlvl = 25:30, noint = FALSE)
-test <- twoway.cont.cont(xs, X = "exposure", M = "bmi", Y = "hspss", C = confounders, mlvl = 25:30, noint = FALSE)
-
-
-##### Meta for analyses
+##### Meta 
 N <- nrow(df)
 impnum <- 1; bnum <- 20
 outcomes <- c("hspss", "w20mpace") #"20mpace", "400mtim", 
@@ -163,6 +151,28 @@ exposure <- "v00edcv"
 xlen <- levels(d2[[exposure]]) %>% length - 1
 
 set.seed(0808)
+
+
+########## TESTING AREA ############### 
+X <- exposure
+X <- "ed2"
+M <- "obcat"
+Y <- "hspss"
+L <- "smoker"
+
+#test random interventional analogue
+test <- rint_w(xs, X = "ed2", M = "obcat", Y = "hspss", C = confounders, L = "smoker")
+
+#test simple regression-based methods
+X <- "bmi"
+M <- "hsmss"
+C <- confounders
+
+test <- twoway.cont.cont(xs, X = "exposure", M = "bmi", Y = "hspss", C = confounders, mlvl = 25:30, noint = FALSE)
+test <- twoway.cont.cont(xs, X = "exposure", M = "bmi", Y = "hspss", C = confounders, mlvl = 25:30, noint = FALSE)
+########################################   
+
+
 
 ##### Cross sectional analyses #####
 

@@ -3,15 +3,6 @@ library(foreign); library(dplyr)
 library(reshape2); library(ipw)
 library(foreach); library(nnet)
 
-## Summarizes data availability
-whichtimes <- function (stub, data = df, plen = 3){
-  grep(paste0(stub, "$"), colnames(data), value = TRUE) %>%
-    substring(., 2, 3) %>% as.numeric(.)
-}
-
-# Exploration
-#CreateTableOne(data = df, vars = c("v00lfmaxf", "v00pase", "v00abcirc"), strata = "v00edcv")
-
 #general function : pcs // adl
 #knee function : womac disability // KOOS function
 #physical exam : 20 m // isometric strength
