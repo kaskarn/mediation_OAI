@@ -12,6 +12,9 @@ fmatch <- function(v, x, l = -1, mat = FALSE){
   #replaces syntax of type [cbind(1:nrow(dat),match(dat[[M]], levels(dat[[M]])))]
     if(!is.factor(x)) stop("Must be factor variable")
     if(l == -1) l <- length(x)
+    
+    if(length(levels(x)) == 2) v <- cbind(1-v, v)
+  
     if(mat){return(cbind(1:l,match(x, levels(x))))
     }else return(v[cbind(1:l,match(x, levels(x)))])
 }
@@ -103,25 +106,26 @@ rint_w <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, ref = 0, treat =
   l_pro <- predict(object = l_mod, newdata = mutate_(dat, .dots = setNames(list(~ref), X)), "probs")
   
   # math to get numerator
-  num <- lapply(levels(dat[[L]]), function (i) {
-            m_pro2 <- predict(
-                  object = m_mod, 
-                  newdata = mutate_(dat, .dots = setNames(list(~i), L)) %>% 
-                            mutate_(., .dots = setNames(list(~ref), X)),
-                  "probs"
-                ) %>% fmatch(dat[[M]])
-            tmres <- m_pro2 * l_pro[,match(i, levels(dat[[L]]))]
-            }
-            ) %>% do.call(cbind, .) %>% apply(., 1, sum)
+  num <- lapply(levels(dat[[L]]), 
+                function (i) {
+                    predict(
+                      object = m_mod, 
+                      newdata = mutate_(dat, .dots = setNames(list(~i), L)) %>% 
+                                mutate_(., .dots = setNames(list(~ref), X)),
+                      "probs"
+                    ) %>% fmatch(dat[[M]]) * l_pro[,match(i, levels(dat[[L]]))]
+                }) %>% do.call(cbind, .) %>% apply(., 1, sum)
   
   #get weight
   if(stable){ dat$w <- num/den * ((table(dat[[X]])/nrow(dat))[match(dat[[X]], levels(dat[[X]]))])
-  }else w <- dat$num / den  
-  
-    
+  }else dat$w <- num/den  
+
   ###duplicate dataset for each category of exposure
   dat <- do.call(rbind, lapply(1:length(levels(d2[[X]])), function(i) mutate(dat, astar = i - 1))) %>% 
          mutate(astar = factor(astar, labels = levels(dat[[X]])))
+  
+#   for(i in levels(dat[[X]])) dat[[paste0("astar_",match(i, levels(dat[[X]])))]] <- i == dat$astar
+#   asl <- grep("^astar_", names(dat), value = TRUE)
   
 #   N <- nrow(dat)
 #   dat2 <- dat
@@ -132,11 +136,12 @@ rint_w <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, ref = 0, treat =
   
   
   ### direct effect
-  nde_mod <- lm(data = dat[dat$astar == ref,], get(Y) ~ get(X), weights = w[dat$astar == ref])
-  nie_mod <-lm(data = dat[dat[[X]] != ref,], get(Y) ~ astar, weights = w[dat[[X]] != ref])
+  nde_mod <- lm(data = dat[dat$astar == ref,], get(Y) ~ get(X), weights = w)
+  nie_mod <-lm(data = dat[dat[[X]] != ref,], get(Y) ~ astar, weights = w)
 }
 
 X <- exposure
+X <- "ed2"
 M <- "obcat"
 Y <- "hspss"
 L <- "smoker"
@@ -228,7 +233,7 @@ for(o in outcomes){
     res <- lapply(c("te", "nie", "nde"), function (i) list(crude = get(i), result = apply(get(i), 2, quantile, probs = c(0.025, 0.50, 0.975))))
     res_int_xs[[o]][[m]] <- list(te = res[[1]], nie = res[[2]], nde = res[[3]])
   } 
-}
+} 
 #####
 ##### Longitudinal analyses ##### 
 meta <- c(meta, "tok")
