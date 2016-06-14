@@ -3,8 +3,9 @@ library(foreign); library(dplyr)
 library(reshape2); library(ipw)
 library(foreach); library(nnet)
 
-## Summarizes data availability (for exploration)
+
 whichtimes <- function (stub, data = df, plen = 3){
+  ## Summarizes data availability (for exploration)
   grep(paste0(stub, "$"), colnames(data), value = TRUE) %>%
     substring(., 2, 3) %>% as.numeric(.)
 }
@@ -18,10 +19,11 @@ fmatch <- function(v, x, l = -1, mat = FALSE){
     if(mat){return(cbind(1:l,match(x, levels(x))))
     }else return(v[cbind(1:l,match(x, levels(x)))])
 }
-## Twoway decomposition indirect and direct effects  (VDW)
- #for continuous mediator and outcome
-
 twoway.cont.cont <- function(df, X, M, Y, C = "", xlen = 0, mlen = 0, noint = FALSE, mlvl = NULL, delta = FALSE){
+  ## Twoway decomposition indirect and direct effects  (VDW)
+  #for continuous mediator and outcome
+
+  
   #sets position and lengths of coefficient vectors
   if(xlen == 0) if(is.factor(df[[X]])) xlen <- levels(df[[X]]) %>% length - 1 else xlen <- 1
   if(mlen == 0) if(is.factor(df[[M]])) mlen <- levels(df[[M]]) %>% length - 1 else mlen <- 1
@@ -76,8 +78,9 @@ twoway.cont.cont <- function(df, X, M, Y, C = "", xlen = 0, mlen = 0, noint = FA
   #end
   return(list(out = out, se = se))
 }
-
-rint_w <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, ref = 0, treat = 1, stable = TRUE){
+rint_w <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, stable = TRUE){
+  # Random interventional analogue to natural direct and indirect effects
+  
   ###Create referent indicator A = a*
   dat$aref <- as.integer(dat[[X]] == levels(dat[[X]])[1])
   ref <- levels(dat[[X]])[1]
@@ -124,86 +127,31 @@ rint_w <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, ref = 0, treat =
   dat <- do.call(rbind, lapply(1:length(levels(d2[[X]])), function(i) mutate(dat, astar = i - 1))) %>% 
          mutate(astar = factor(astar, labels = levels(dat[[X]])))
   
-#   for(i in levels(dat[[X]])) dat[[paste0("astar_",match(i, levels(dat[[X]])))]] <- i == dat$astar
-#   asl <- grep("^astar_", names(dat), value = TRUE)
-  
-#   N <- nrow(dat)
-#   dat2 <- dat
-#   dat2$astar <- dat[[X]]
-#   dat$astar = NA
-#   dat <- rbind(dat2, dat)
-#   dat[is.na(dat$astar),"astar"] <- levels(dat[[X]])[1]
-  
-  
   ### direct effect
   nde_mod <- lm(data = dat[dat$astar == ref,], get(Y) ~ get(X), weights = w)
   nie_mod <-lm(data = dat[dat[[X]] != ref,], get(Y) ~ astar, weights = w)
+  
+  #output
+  return(list(nde = nde_mod$coefficients, nie = nie_mod$coefficients))
 }
 
+
+##### TESTING AREA 
 X <- exposure
 X <- "ed2"
 M <- "obcat"
 Y <- "hspss"
 L <- "smoker"
-test <- twoway.cont.cont(xs, X = "exposure", M = "bmi", Y = "hspss", C = confounders, mlvl = 25:30, noint = FALSE)
 
-test <- twoway.cont.cont(xs, X = "exposure", M = "bmi", Y = "hspss", C = confounders, mlvl = 25:30, noint = FALSE)
+test <- rint_w(xs, X = "ed2", M = "obcat", Y = "hspss", C = confounders, L = "smoker")
 
 X <- "bmi"
 M <- "hsmss"
 C <- confounders
 
-## threeway decomposition
-# output is vector of length equal to number of categories of outcome, minus 1 
+test <- twoway.cont.cont(xs, X = "exposure", M = "bmi", Y = "hspss", C = confounders, mlvl = 25:30, noint = FALSE)
+test <- twoway.cont.cont(xs, X = "exposure", M = "bmi", Y = "hspss", C = confounders, mlvl = 25:30, noint = FALSE)
 
-##### Read data from .csv downloaded at epi-ucsf.edu #####
-tyears <- c(0,1,1.5,2,2.5,3:8)
-times <- c(0:10)
-df <- left_join(read.csv("Enrollees.txt", sep = "|"), read.csv("Outcomes99.txt", sep = "|") %>% rename(ID = id), by = "ID")
-for(i in times) df <- left_join(df, read.csv(paste0("AllClinical", sprintf("%02d",i), ".txt"), sep = "|"), by = "ID")
-colnames(df) <- tolower(colnames(df)) #fix SAS case-agnostic names
-df %<>% subset(p02race %in% c(1,2)) %>% mutate(p02race = factor(p02race, labels = c("EA", "AA"))) %>%
-  rename(v00bmi = p01bmi) #keep AA and EU %>% 
-#fix 20m and 400m variables suffix to start with letter
-names(df)[grep("20mpace", names(df))] <- unlist(lapply(grep("20mpace", names(df), value = TRUE), function (i) paste0(substring(i,1,3), "w",substring(i,4))))
-names(df)[grep("400mtim", names(df))] <- unlist(lapply(grep("400mtim", names(df), value = TRUE), function (i) paste0(substring(i,1,3), "w",substring(i,4))))
-
-##### Define variables we'll keep for analyses #####
-meta <- c("id", "version")
-xsec <- c("p01sxkoa", "p02sex", "p02race", "v00edcv", "v00income")
-long <- lapply(c("hsmss$", "bmi$", "w20mpace$", "w400mtim$", "^...age", "hspss$", "^...smoker$", "smkpkyr"), function (i) grep(i, colnames(df), value = TRUE))
-outc <- c("v99elxioa", "v99erxioa", "v99rntcnt", "v99eddcf")
-d2 <- df[c(meta, xsec, unlist(long))][df$p01sxkoa != 0,]
-
-##### Data fixes and reformats
-# all discrete ints to factor
-for(i in colnames(d2)) if(is.integer(d2[[i]])) if(length(unique(d2[[i]])) < 10) d2[[i]] <- factor(d2[[i]]) 
-#smoking categories:
-for(i in grep("smoker$", colnames(d2))) levels(d2[[i]]) <- c("Never", "Current", "Former", "Never") #Second "Never" is occasional, not regular ever smokers)
-#infer missing age using time between T's: 
-ageloc <- match("v00age", colnames(d2)) 
-for(i in 1:length(times[-1])) d2[is.na(d2[ageloc+i]),ageloc+i] <- d2[is.na(d2[ageloc+i]),ageloc+i-1] + tyears[i+1] - tyears[i]
-#categorize education and change referent
-d2$v00edcv %<>% factor(., labels = c("<HS", "HS", "S.C.", "Coll", "S.G.", "Grad"))
-d2$v00edcv  %<>% relevel(ref = last(levels(.)))
-
-#create baseline data
-long_xs <- sapply(long, "[[", 1)
-xs <- d2[c(meta, xsec, long_xs)] 
-names(xs)[match(long_xs, names(xs))] %<>% substring(., 4)
-xs %<>% mutate(obcat = cut(bmi, breaks = c(min(bmi, na.rm = T),25,30,35, 999)),
-                depcat = cut(hsmss, breaks = c(0, 40, 50, 60, 999)),
-                pycat = .bincode(smkpkyr, breaks = c(0,10,20,30, 999)),
-                agesq = age*age,
-                ra_se = (p02race %in% "AA")*(p02sex == 2),
-                a_ra = (p02race %in% "AA")*age,
-                a2_ra = (p02race %in% "AA")*agesq,
-                a_se = (p02sex == 2)*age,
-                a2_se = (p02sex == 2)*agesq
-              )
-xs$smknow <- xs$smkever <- xs$smoker 
-levels(xs$smknow) <- c("Never", "Current", "Never", "Never")
-levels(xs$smkever) <- c("Never", "Ever", "Ever", "Never")
 
 ##### Meta for analyses
 N <- nrow(df)
