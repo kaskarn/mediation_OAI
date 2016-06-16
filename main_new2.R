@@ -7,10 +7,10 @@ library(foreach); library(nnet)
 source("load_data.R")
 
 #### utility functons
-fmatch <- function(v, x, l = -1, mat = FALSE){
+fmatch <- function(v, x, l = NULL, mat = FALSE){
   #replaces syntax of type [cbind(1:nrow(dat),match(dat[[M]], levels(dat[[M]])))]
     if(!is.factor(x)) stop("Must be factor variable")
-    if(l == -1) l <- length(x)
+    if(is.null(l)) l <- length(x)
     
     if(length(levels(x)) == 2) v <- cbind(1-v, v)
   
@@ -24,6 +24,35 @@ whichtimes <- function (stub, data = df, plen = 3){
 }
 
 #### Functions based on vdw book
+med.iptw <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, mlvl = NULL, stable = FALSE){
+  ### WORK IN PROGRESS
+  if(xlen == 0) if(is.factor(dat[[X]])) xlen <- levels(dat[[X]]) %>% length - 1 else stop("X must be factor")
+  if(mlen == 0) if(is.factor(dat[[M]])) mlen <- levels(dat[[M]]) %>% length - 1 else stop("M must be factor")
+  
+  #replicate input with parentheses
+  for(i in c("X","M","Y","C", "L")) assign(paste0(i, "2"), paste0("(",get(i),")"))
+  
+  N <- nrow(dat)
+  #p(a)
+  pa <- (table(dat[[X]])/N)[match(dat[[X]], levels(dat[[X]]))]
+  pa_c <- multinom(data = dat, as.formula(paste0(X, "~", paste0(C2, collapse = "+"))), trace = FALSE) %>% 
+          predict(., newdata = dat, "probs") %>% fmatch(dat[[X]])
+  pm_a <- multinom(data= dat, as.formula(paste0(M, "~", X)), trace = FALSE) %>% 
+          predict(., newdata = dat, "probs") %>% fmatch(dat[[M]])
+  pm_acl <- multinom(data= dat, as.formula(paste0(M, "~", paste(X, paste0(C2, collapse = "+"), paste0(L2, collapse = "+"), sep = "+"))), trace = FALSE) %>% 
+            predict(., newdata = dat, "probs") %>% fmatch(dat[[M]])
+  w <- pa*pm_a/pa_c/pm_acl
+  
+  #run MSM
+  msm <- lm(data = dat, get(Y) ~ get(X) + get(M) + get(X)*get(M), weights = w)
+  
+  #separate output
+  num <- cumsum(c(xlen, mlen, xlen*mlen))
+  
+  #treat mlvl
+  if(is.null(mlvl)) mlvl <- table(dat[[M]]) / N
+  cde <- lapply(mlvl)
+}
 twoway.cont.cont <- function(df, X, M, Y, C = "", xlen = 0, mlen = 0, noint = FALSE, mlvl = NULL, delta = FALSE){
   ## Twoway decomposition indirect and direct effects  (VDW)
   #for continuous mediator and outcome
@@ -83,25 +112,35 @@ twoway.cont.cont <- function(df, X, M, Y, C = "", xlen = 0, mlen = 0, noint = FA
   #end
   return(list(out = out, se = se))
 }
-rint_w <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, stable = FALSE){
+rint_med <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, stable = FALSE, debug = FALSE){
   # Random interventional analogue to natural direct and indirect effects
   
-  ###Create referent indicator A = a*
-  dat$aref <- as.integer(dat[[X]] == levels(dat[[X]])[1])
+  ###Create shorthand for base level of X
   ref <- levels(dat[[X]])[1]
 
-  ###replicate input with parentheses
+  ###replicate input with parentheses. 
+  #This allow to use arbitrary syntax in confounder specification (like equations or functions)
+  #functionally, X, M, Y, C and L are the same as X2, Y2, M2, C2, L2 in most cases
   for(i in c("X","M","Y","C", "L")) assign(paste0(i, "2"), paste0("(",get(i),")"))
   
   ### Compute weights
+  #[ ]_form: formula fed to mode
+  #[ ]_mod: model of a/m/l, 
+  #[ ]_pro: propensity score (conditional probability)
+  #note 1: dplyr functions (mutate_) probably have faster datatable analogues, but I prefer dplyr grammar
+  #note 2: requires fmatch() function defined above, which returns conditional probability of observed from matrix of 
+  # predicted probabilities for all possible levels
+  
   ## denominator
   # p(a | c)
-  a_form <- as.formula(paste0(X, "~", paste0(C2, collapse = "+")))
+  a_form <- as.formula(paste0(X2, "~", paste0(C2, collapse = "+")))
+  if(debug) print(a_form)
   a_mod <- multinom(data = dat, a_form, trace = FALSE)
   a_pro <- predict(object = a_mod, newdata = dat, "probs") %>% fmatch(dat[[X]])
   
   # p(m |l, a, c)
-  m_form <- as.formula(paste0(M, "~", paste(X, paste0(L2, collapse = "+"), paste0(C2, collapse = "+"), sep = "+")))
+  m_form <- as.formula(paste0(M2, "~", paste(X, paste0(L2, collapse = "+"), paste0(C2, collapse = "+"), sep = "+")))
+  if(debug) print(m_form)
   m_mod <- multinom(data = dat, m_form1, trace = FALSE)
   m_pro <- predict(object = m_mod1, newdata = dat, "probs") %>% fmatch(dat[[M]])
 
@@ -110,35 +149,48 @@ rint_w <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, stable = FALSE){
   ## numerator
   # p(l | a*, c)
   l_form <- as.formula(paste0(L2, "~", X, "+", paste0(C2, collapse = "+")))
+  if(debug) print(l_form)
   l_mod <- multinom(data = dat, l_form, trace = FALSE)
   l_pro <- predict(object = l_mod, newdata = mutate_(dat, .dots = setNames(list(~ref), X)), "probs")
   
-  # math to get numerator
+  # sum over support of L: P(m | a*, c, l)P(l | a*, c)
   num <- lapply(levels(dat[[L]]), 
-                function (i) {
-                    predict(
-                      object = m_mod, 
-                      newdata = mutate_(dat, .dots = setNames(list(~i), L)) %>% 
-                                mutate_(., .dots = setNames(list(~ref), X)),
-                      "probs"
-                    ) %>% fmatch(dat[[M]]) * l_pro[,match(i, levels(dat[[L]]))]
-                }) %>% do.call(cbind, .) %>% apply(., 1, sum)
+                  function (i) {
+                      predict(
+                        object = m_mod, #model of m from before
+                        newdata = mutate_(dat, .dots = setNames(list(~i), L)) %>% #nonstandard evaluation to set L to current level in sum
+                                  mutate_(., .dots = setNames(list(~ref), X)), #set A to unexposed (can be taken out of loop)
+                        "probs"
+                      ) %>% fmatch(dat[[M]]) * l_pro[,match(i, levels(dat[[L]]))] #P(m | a*, c, l)P(l | a*, c)
+                  }
+                ) %>% 
+          do.call(cbind, .) %>% #forms a matrix of P(m | a*, c, l)P(l | a*, c) for each l in support of L 
+          apply(., 1, sum) #sums across rows for marginal p
   
-  #get weight, stabilized if needed (actually not required)
+  #get weight, stabilize if needed (shouldn't not required)
   if(stable){ 
     dat$w <- num/den * ((table(dat[[X]])/nrow(dat))[match(dat[[X]], levels(dat[[X]]))])
   }else dat$w <- num/den  
-
-  ###duplicate dataset for each category of exposure
-  dat <- do.call(rbind, lapply(1:length(levels(d2[[X]])), 
-                               function(i) mutate(dat, astar = i - 1))
-                 ) %>% mutate(astar = factor(astar, labels = levels(dat[[X]])))
-  ### direct effect
-  nde_mod <- lm(data = dat[dat$astar == ref,], get(Y) ~ get(X), weights = w)
-  nie_mod <-lm(data = dat[dat[[X]] != ref,], get(Y) ~ astar, weights = w)
+  if(debug) mean(w, na.rm = TRUE) %>% print
   
-  #output
-  return(list(nde = nde_mod$coefficients, nie = nie_mod$coefficients))
+  ### Direct effect
+  nde <- lm(data = dat, as.formula(paste0(Y2, "~", X2)), weights = w)$coefficients[-1] #we don't save the intercept coeff
+  
+  ### Indirect effect
+  #duplicate dataset with 0/1 indicator
+  dat <- rbind(mutate(dat, astar = 0), mutate(dat, astar = 1)) %>% mutate(astar = factor(astar))
+  #get NIEs in models for each nonrefent level of X
+  nie <- lapply(levels(dat[[X]])[-1], function (i) lm(data = dat[dat[[X]] == i,], 
+                                    as.formula(paste0(Y2, "~ astar")), 
+                                    weights = w)$coefficients[2]) #save astar coeff
+  
+  ### output results
+  nie <- unlist(nie)
+  names(nie) <- names(nde) <- levels(dat[[X]])[-1]
+  return(list(mod_exp = a_mod,
+              mod_med = m_mod,
+              nde = nde, 
+              nie = nie))
 }
 
 ##### Meta 
