@@ -118,13 +118,15 @@ rint_med.mkdata <- function(orig_dat, X, M, Y, C = "", L){
 }
 
 rint_med.decompose <- function(dat, Y, X, astar = "astar"){
-  ref <- levels(dat[[astar]])[1]
+  ref <- levels(dat[[X]])[1]
   m_te <- lm(data = dat, as.formula(paste0(Y, "~", X)), weights = ipw_conf)
   m_ter <- lm(data = dat[dat[[astar]] == dat[[X]],], as.formula(paste0(Y, "~", astar)), weights = w)
   m_nder <- lm(data = dat[dat[[astar]] == ref,], as.formula(paste0(Y, "~", X)), weights = w)
   m_nier_prollywrong <- lm(data = dat[dat[[X]] != ref,], as.formula(paste0(Y, "~", astar)), weights = w)
-  nier <- lapply(levels(dat[[X]])[-1], function(i) lm(data = dat[dat[[X]] == i,], 
-                                                     as.formula(paste0(Y, "~", astar)), weights = w)$coefficients[-1]
+  nier <- lapply(levels(dat[[X]])[-1], 
+                 function(i) lm(data = dat[(dat[[X]] == i) & (dat[[astar]] %in% c(ref,i)),], 
+                                as.formula(paste0(Y, "~", astar)), 
+                                weights = w)$coefficients[-1]
                 ) %>% unlist
   
   return(list(
@@ -137,11 +139,4 @@ rint_med.decompose <- function(dat, Y, X, astar = "astar"){
     te = m_te$coefficients[-1]
   ))
 }
-
-rint_med2 <- function(dat, Y, X, astar = "astar"){
-  ref <- levels(dat[[astar]])[1]
-  
-  return(unlist(nie))
-}
-
   
