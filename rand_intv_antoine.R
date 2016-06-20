@@ -12,7 +12,7 @@ fmatch <- function(v, x, l = NULL, mat = FALSE){
 
 rint_med.mkdata <- function(orig_dat, X, M, Y, C = "", L){
   ### replicate C with parentheses to allow arbitrary syntax in confounder specification (like equations or functions)
-  if(C != "") C <- paste0("(",C,")")
+  C <- paste0("(",C,")")
   
   rint_med.mkform <- function(X, C, L, M){
     # Creates formulas to be passed to propensity score models
@@ -29,9 +29,9 @@ rint_med.mkdata <- function(orig_dat, X, M, Y, C = "", L){
     return(list(a_mod = a_mod, m_mod = m_mod, l_mod = l_mod))
   }
   rint_med.mkden <- function(dat, mods, X, L){
-    # Makes denominator 
-    pmlac <- predict(object = mods$m_mod, type = "probs") %>% fmatch(dat[[M]])
-    pac <- predict(object = mods$a_mod, type = "probs") %>% fmatch(dat[[X]])
+    # Makes denominator
+    pmlac <- predict(object = mods$m_mod, newdata = dat, type = "probs") %>% fmatch(dat[[M]])
+    pac <- predict(object = mods$a_mod, newdata = dat, type = "probs") %>% fmatch(dat[[X]])
     return(list(pmlac = pmlac, pac = pac, den = pac * pmlac))
   }
   rint_med.copy_data <- function(dat, X){
