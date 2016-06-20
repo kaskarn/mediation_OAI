@@ -164,7 +164,7 @@ rint_med.boot <- function(dat, A, M, Y, C = "", L, astar = "astar", boot = 10, q
     ar_ter[i,] <- res$ter
     ar_nder[i,] <- res$nder
     ar_nier[i,] <- res$nier
-    ar_pm[i,] <- res$ter / res$nier
+    ar_pm[i,] <- res$nier / res$nier
     ar_te[i,] <- res$te
   }
   
