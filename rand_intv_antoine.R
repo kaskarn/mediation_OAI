@@ -160,11 +160,10 @@ rint_med.boot <- function(dat, A, M, Y, C = "", L, astar = "astar", boot = 10, q
     }else res <- rint_med.decompose(rint_items$an_dat, Y = Y, X = X)
     
     setTxtProgressBar(pb, i/boot)
-    
     ar_ter[i,] <- res$ter
     ar_nder[i,] <- res$nder
     ar_nier[i,] <- res$nier
-    ar_pm[i,] <- res$nier / res$nier
+    ar_pm[i,] <- res$nier / res$ter
     ar_te[i,] <- res$te
   }
   

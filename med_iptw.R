@@ -79,18 +79,18 @@ med_iptw.decomp <- function(an_dat, A, M, Y, regtype = "gaussian", noint = FALSE
     } 
     return(beta)
   }
-  
   #get CDE(M) for all M's
   med_iptw.ints <- function(coef_l, mlvl){
     mlen <- length(coef_l[[2]])
-    if(is.null(mlvl)) mlvl <- rbind(rep(0, mlen), diag(mlen), rep(1/mlen, mlen))
     fullb <- (t(replicate(nrow(mlvl), coef_l[[1]])) + mlvl%*%coef_l[[3]]) %>% as.matrix
     return(fullb)
   }
   
+  #Default mlvl if needed
+  if(noint == FALSE) if(is.null(mlvl)) mlvl <- rbind(rep(0, mlen), diag(mlen), rep(1/mlen, mlen))
+  
   #Make model of Y
   ymods <- med_iptw.mkymod(an_dat, regtype, noint, Y, X, M)
-  
   #Break into dummy coeffs
   cde <- med_iptw.break(an_dat, A, M, noint, ymods$cde$coefficients)
   te <- ymods$te$coefficients[-1]
@@ -107,14 +107,19 @@ med_iptw.decomp <- function(an_dat, A, M, Y, regtype = "gaussian", noint = FALSE
   return(list(mods = ymods, cde = cde_ints, te = te, pm = pm, cie = cie))
 }
 
-med_iptw.boot <- function(dat, A, M, Y, C = "", L = "", noint = FALSE, boot = 100, quants = c(0.025, 0.5, 0.975)){
+med_iptw.boot <- function(dat, A, M, Y, C = "", L = "", regtype = "gaussian", noint = FALSE, boot = 100, 
+                          quants = c(0.025, 0.5, 0.975), mlvl = NULL){
+  
   alen <- levels(dat[[A]])[-1] %>% length
   mlen <- levels(dat[[M]])[-1] %>% length
+  if(is.null(mlvl)) mlvl <- rbind(rep(0, mlen), diag(mlen), rep(1/mlen, mlen))
+  if(is.null(dim(mlvl))){
+    if(length(mlvl) == mlen) mlvl <- t(mlvl) else stop("Non conformable mlvl")
+  }
   
-  ar_te <- array(NA, dim = c(boot, alen), dimnames = list(1:boot, levels(dat[[A]])[-1]))
+  ar_te <- array(NA, dim = c(boot, alen))
   if(noint == TRUE){ ar_cde <- ar_pm <- ar_cie <- ar_te
-  }else ar_cde <- ar_pm <- ar_cie <- array(dim = c(boot, alen, mlen), 
-                                           dimnames = list(1:boot, levels(dat[[A]])[-1], levels(dat[[M]])[-1]))
+  }else ar_cde <- ar_pm <- ar_cie <- array(dim = c(boot, alen, nrow(mlvl)))
   
   pb <- txtProgressBar(style = 3)
   for(i in 1:boot)
@@ -125,22 +130,21 @@ med_iptw.boot <- function(dat, A, M, Y, C = "", L = "", noint = FALSE, boot = 10
       tdat <- sample_frac(dat, 1, replace = TRUE)
     }
     
-    
     an_dat <- med_iptw.mkdat(tdat, A = X, M = M, Y = Y, C = C, L = L)
     setTxtProgressBar(pb, (2*i-1)/boot/2)
-    res <- med_iptw.decomp(an_dat, A = X, M = M, Y = Y, noint = TRUE)
+    res <- med_iptw.decomp(an_dat, A = X, M = M, Y = Y, regtype = regtype, noint = noint, mlvl = mlvl)
     setTxtProgressBar(pb, i/boot)
     
     ar_te[i,] <- res$te
-    ar_cde[i,] <- res$cde
-    ar_cie[i,] <- res$cie
-    ar_pm[i,] <- res$pm
+    if(noint == TRUE) ar_cde[i,] <- res$cde else ar_cde[i,,] <- res$cde
+    if(noint == TRUE) ar_cie[i,] <- res$cde else ar_cie[i,,] <- res$cie
+    if(noint == TRUE) ar_pm[i,] <- res$pm else ar_pm[i,,] <- res$pm
   }
-  
+  if(noint == TRUE) over <- 2 else over <- c(3,2)
   te_95 <- lapply(quants, function (i) apply(ar_te, 2, quantile, probs = i, na.rm = TRUE))
-  cde_95 <- lapply(quants, function (i) apply(ar_cde, 2, quantile, probs = i, na.rm = TRUE))
-  pm_95 <- lapply(quants, function (i) apply(ar_pm, 2, quantile, probs = i, na.rm = TRUE))
-  cie_95 <- lapply(quants, function (i) apply(ar_cie, 2, quantile, probs = i, na.rm = TRUE))
+  cde_95 <- lapply(quants, function (i) apply(ar_cde, over, quantile, probs = i, na.rm = TRUE))
+  pm_95 <- lapply(quants, function (i) apply(ar_pm, over, quantile, probs = i, na.rm = TRUE))
+  cie_95 <- lapply(quants, function (i) apply(ar_cie, over, quantile, probs = i, na.rm = TRUE))
   
   return(list(
     arrays = list(te = ar_te, cde = ar_cde, cie = ar_cie, pm = ar_pm),
@@ -150,20 +154,6 @@ med_iptw.boot <- function(dat, A, M, Y, C = "", L = "", noint = FALSE, boot = 10
     cie = cie_95)
   )
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
