@@ -47,6 +47,7 @@ med_iptw.mkdat <- function(orig_dat, A, M, Y, C = "", L = ""){
   mlist <- med_iptw.mkmods(orig_dat, flist)
   plist <- med_iptw.mkprop(orig_dat, A, M, mlist)
   an_dat <- med_iptw.mkweight(orig_dat, plist)
+  return(an_dat)
 }
 
 
@@ -95,11 +96,74 @@ med_iptw.decomp <- function(an_dat, A, M, Y, regtype = "gaussian", noint = FALSE
   te <- ymods$te$coefficients[-1]
   
   #Return NDE and TE if noint
-  if(noint == TRUE) return(list(mods = ymods, cde = cde, te = te))
+  if(noint == TRUE) return(list(mods = ymods, cde = cde, te = te, cie = (te - cde), pm = (te-cde)/te))
   
   #Get CDE(M) for each M if interaction
   cde_ints <- med_iptw.ints(cde, mlvl)
+  pm <- (t(replicate(nrow(cde_ints), te)) - cde_ints)/t(replicate(nrow(cde_ints), te))
+  cie <- (t(replicate(nrow(cde_ints), te)) - cde_ints)
   
   #Return CDE(M) and TE if interaction
-  return(list(mods = ymods, cde = cde_ints, te = te))
+  return(list(mods = ymods, cde = cde_ints, te = te, pm = pm, cie = cie))
 }
+
+med_iptw.boot <- function(dat, A, M, Y, C = "", L = "", noint = FALSE, boot = 100, quants = c(0.025, 0.5, 0.975)){
+  alen <- levels(dat[[A]])[-1] %>% length
+  mlen <- levels(dat[[M]])[-1] %>% length
+  
+  ar_te <- array(NA, dim = c(boot, alen), dimnames = list(1:boot, levels(dat[[A]])[-1]))
+  if(noint == TRUE){ ar_cde <- ar_pm <- ar_cie <- ar_te
+  }else ar_cde <- ar_pm <- ar_cie <- array(dim = c(boot, alen, mlen), 
+                                           dimnames = list(1:boot, levels(dat[[A]])[-1], levels(dat[[M]])[-1]))
+  
+  pb <- txtProgressBar(style = 3)
+  for(i in 1:boot)
+  {
+    tdat <- sample_frac(dat, 1, replace = TRUE)
+    while(min(table(tdat[[A]])) < 20){
+      print("resampling failed, retrying...")
+      tdat <- sample_frac(dat, 1, replace = TRUE)
+    }
+    
+    
+    an_dat <- med_iptw.mkdat(tdat, A = X, M = M, Y = Y, C = C, L = L)
+    setTxtProgressBar(pb, (2*i-1)/boot/2)
+    res <- med_iptw.decomp(an_dat, A = X, M = M, Y = Y, noint = TRUE)
+    setTxtProgressBar(pb, i/boot)
+    
+    ar_te[i,] <- res$te
+    ar_cde[i,] <- res$cde
+    ar_cie[i,] <- res$cie
+    ar_pm[i,] <- res$pm
+  }
+  
+  te_95 <- lapply(quants, function (i) apply(ar_te, 2, quantile, probs = i, na.rm = TRUE))
+  cde_95 <- lapply(quants, function (i) apply(ar_cde, 2, quantile, probs = i, na.rm = TRUE))
+  pm_95 <- lapply(quants, function (i) apply(ar_pm, 2, quantile, probs = i, na.rm = TRUE))
+  cie_95 <- lapply(quants, function (i) apply(ar_cie, 2, quantile, probs = i, na.rm = TRUE))
+  
+  return(list(
+    arrays = list(te = ar_te, cde = ar_cde, cie = ar_cie, pm = ar_pm),
+    te = te_95,
+    cde = cde_95,
+    pm = pm_95,
+    cie = cie_95)
+  )
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
