@@ -139,4 +139,48 @@ rint_med.decompose <- function(dat, Y, X, astar = "astar"){
     te = m_te$coefficients[-1]
   ))
 }
+
+rint_med.boot <- function(dat, A, M, Y, C = "", L, astar = "astar", boot = 10, quants = c(0.025, 0.5, 0.975), alex = FALSE){
+  alen <- levels(dat[[A]])[-1] %>% length
+  mlen <- levels(dat[[M]])[-1] %>% length
+  
+  ar_nder <- ar_pm <- ar_nier <- ar_ter <- ar_te <- array(NA, dim = c(boot, alen), dimnames = list(1:boot, levels(dat[[A]])[-1]))
+  pb <- txtProgressBar(style = 3)
+  for(i in 1:boot)
+  {
+    tdat <- sample_frac(dat, 1, replace = TRUE)
+    while(min(table(tdat[[A]])) < 20){
+      print("resampling failed, retrying...")
+      tdat <- sample_frac(dat, 1, replace = TRUE)
+    }
+    
+    rint_items <- rint_med.mkdata(tdat, X = X, C = C, M = M, L = L)
+    setTxtProgressBar(pb, (2*i-1)/boot/2)
+    if(alex){ res <- rint_med.decompose(rint_items$an_dat %>% mutate(w = w_ak), Y = Y, X = X)
+    }else res <- rint_med.decompose(rint_items$an_dat, Y = Y, X = X)
+    
+    setTxtProgressBar(pb, i/boot)
+    
+    ar_ter[i,] <- res$ter
+    ar_nder[i,] <- res$nder
+    ar_nier[i,] <- res$nier
+    ar_pm[i,] <- res$ter / res$nier
+    ar_te[i,] <- res$te
+  }
+  
+  te_95 <- lapply(quants, function (i) apply(ar_te, 2, quantile, probs = i, na.rm = TRUE))
+  ter_95 <- lapply(quants, function (i) apply(ar_ter, 2, quantile, probs = i, na.rm = TRUE))
+  nder_95 <- lapply(quants, function (i) apply(ar_nder, 2, quantile, probs = i, na.rm = TRUE))
+  pm_95 <- lapply(quants, function (i) apply(ar_pm, 2, quantile, probs = i, na.rm = TRUE))
+  nier_95 <- lapply(quants, function (i) apply(ar_nier, 2, quantile, probs = i, na.rm = TRUE))
+  
+  return(list(
+    arrays = list(te = ar_te, ter = ar_ter, nder = ar_nder, nier = ar_nier, pm = ar_pm),
+    te = ter_95,
+    ter = ter_95,
+    nder = nder_95,
+    pm = pm_95,
+    nier = nier_95)
+  )
+}
   
