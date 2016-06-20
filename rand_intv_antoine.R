@@ -1,5 +1,5 @@
 fmatch <- function(v, x, l = NULL, mat = FALSE){
-#replaces syntax of type [cbind(1:nrow(dat),match(dat[[M]], levels(dat[[M]])))]
+# replaces syntax of type [cbind(1:nrow(dat),match(dat[[M]], levels(dat[[M]])))]
   if(!is.factor(x)) stop("Must be factor variable")
   if(is.null(l)) l <- length(x)
   
@@ -11,24 +11,25 @@ fmatch <- function(v, x, l = NULL, mat = FALSE){
 
 
 rint_med.mkdata <- function(orig_dat, X, M, Y, C = "", L){
-  ###replicate C with parentheses to allow arbitrary syntax in confounder specification (like equations or functions)
+  ### replicate C with parentheses to allow arbitrary syntax in confounder specification (like equations or functions)
   if(C != "") C <- paste0("(",C,")")
+  
   rint_med.mkform <- function(X, C, L, M){
-    #Creates formulas to be passed to propensity score models
+    # Creates formulas to be passed to propensity score models
     a_form <- as.formula(paste0(X, "~", paste0(C, collapse = "+")))
     m_form <- as.formula(paste0(M, "~", paste(X, paste0(L, collapse = "+"), paste0(C, collapse = "+"), sep = "+")))
     l_form <- as.formula(paste0(L, "~", X, "+", paste0(C, collapse = "+")))
     return(list(a_form = a_form, m_form = m_form, l_form = l_form))
   }
   rint_med.mkmods <- function(dat, f){
-    #Makes propensity score models from formulas in rint_med.mkform
+    # Makes propensity score models from formulas in rint_med.mkform
     a_mod <- multinom(data = dat, f$a_form, trace = FALSE)
     m_mod <- multinom(data = dat, f$m_form, trace = FALSE)
     l_mod <- multinom(data = dat, f$l_form, trace = FALSE)
     return(list(a_mod = a_mod, m_mod = m_mod, l_mod = l_mod))
   }
   rint_med.mkden <- function(dat, mods, X, L){
-    #Probabilities of observed values given covariates
+    # Makes denominator 
     pmlac <- predict(object = mods$m_mod, type = "probs") %>% fmatch(dat[[M]])
     pac <- predict(object = mods$a_mod, type = "probs") %>% fmatch(dat[[X]])
     return(list(pmlac = pmlac, pac = pac, den = pac * pmlac))
@@ -121,16 +122,17 @@ rint_med.decompose <- function(dat, Y, X, astar = "astar"){
   m_te <- lm(data = dat, as.formula(paste0(Y, "~", X)), weights = ipw_conf)
   m_ter <- lm(data = dat[dat[[astar]] == dat[[X]],], as.formula(paste0(Y, "~", astar)), weights = w)
   m_nder <- lm(data = dat[dat[[astar]] == ref,], as.formula(paste0(Y, "~", X)), weights = w)
-  m_nier <- lm(data = dat[dat[[X]] != ref,], as.formula(paste0(Y, "~", astar)), weights = w)
+  m_nier_prollywrong <- lm(data = dat[dat[[X]] != ref,], as.formula(paste0(Y, "~", astar)), weights = w)
   nier <- lapply(levels(dat[[X]])[-1], function(i) lm(data = dat[dat[[X]] == i,], 
                                                      as.formula(paste0(Y, "~", astar)), weights = w)$coefficients[-1]
                 ) %>% unlist
   
   return(list(
-    models = list(m_te = m_te, m_ter = m_ter, m_nder = m_nder, m_nier = m_nier),
+    models = list(m_te = m_te, m_ter = m_ter, m_nder = m_nder,
+                  m_nier_prollywrong = m_nier_prollywrong),
     nder = m_nder$coefficients[-1],
     nier = nier,
-    nier2 = m_nier$coefficients[-1],
+    nier_prollywrong = m_nier_prollywrong$coefficients[-1],
     ter = m_ter$coefficients[-1],
     te = m_te$coefficients[-1]
   ))
