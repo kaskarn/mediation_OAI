@@ -137,6 +137,9 @@ rint_med <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, stable = FALSE
   a_mod <- multinom(data = dat, a_form, trace = FALSE)
   a_pro <- predict(object = a_mod, newdata = dat, "probs") %>% fmatch(dat[[X]])
   
+  ### Total effect normal
+  te <- lm(data = dat, as.formula(paste0(Y2, "~", X2)), weights = 1/a_pro)$coefficients[-1]
+  
   # p(m | l, a, c)
   m_form <- as.formula(paste0(M2, "~", paste(X, paste0(L2, collapse = "+"), paste0(C2, collapse = "+"), sep = "+")))
   if(debug) print(m_form)
@@ -154,37 +157,45 @@ rint_med <- function(dat, X, M, Y, C = "", L, xlen = 0, mlen = 0, stable = FALSE
   l_pro <- predict(object = l_mod, type = "probs", newdata = mutate_(dat, .dots = setNames(list(~astar), X)))
   if(is.null(dim(l_pro))) l_pro <- cbind(1-l_pro, l_pro)
 
-  num <- lapply(levels(dat[[L]]), 
+  num_ele <- lapply(levels(dat[[L]]), 
                 function (i){
                   predict(object = m_mod, type = "probs", 
                     newdata = mutate_(dat, .dots = setNames(list(~astar), X)) %>% 
                               mutate_(.dots = setNames(list(~i), L))
                   ) %>% fmatch(dat[[M]]) * l_pro[,match(i, levels(dat[[L]]))]
                 }
-          ) %>% do.call(cbind, .) %>% apply(1, sum)
+          ) %>% do.call(cbind, .)
+  num <- apply(num_ele, 1, sum)
   
   #get weight, stabilize if needed (shouldn't not required)
-  w <- unname(num / den)
+  dat$w <- unname(num / den)
   
   ### Direct effect
   nde <- lm(data = dat[dat$astar == levels(dat[[X]][1]),], 
             as.formula(paste0(Y2, "~", X2)), 
-            weights = w[dat$astar == levels(dat[[X]][1])])$coefficients[-1] #we don't save the intercept coeff
+            weights = w)$coefficients[-1] #we don't save the intercept coeff
   
   ### Indirect effect
-  nie <- lm(data = dat, as.formula(paste0(Y2, "~ astar")), weights = w)$coefficients[-1]
+  nie <- lm(data = dat[dat[[X]] != levels(dat[[X]])[1],], 
+            as.formula(paste0(Y2, "~ astar")), 
+            weights = w)$coefficients[-1]
   
-  ### Total effect
-  te <- lm(data = dat[dat[[X]] == dat$astar, as.formula(paste0(Y2, "~ astar")), weights = w)
+  ### Total effect random
+  ter <- lm(data = dat[dat[[X]] == dat$astar,], as.formula(paste0(Y2, "~", X2)), weights = w)$coefficients[-1]
+  
   ### output results
   names(nie) <- names(nde) <- levels(dat[[X]])[-1]
-  return(list(num = num,
+  return(list(num_ele = num_ele,
+              num = num,
               den = den, 
-              w = w,
+              ipw = 1/a_pro,
+              w = dat$w,
               mod_exp = a_mod,
               mod_med = m_mod,
               nde = nde, 
-              nie = nie))
+              nie = nie,
+              te = te,
+              ter = ter))
 }
 
 ##### Meta 
