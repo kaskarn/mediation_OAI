@@ -25,7 +25,7 @@ meta <- c("id", "version")
 xsec <- c("p01sxkoa", "p02sex", "p02race", "v00edcv", "v00income")
 long <- lapply(c("hsmss$", "bmi$", "w20mpace$", "w400mtim$", "^...age", "hspss$", "^...smoker$", "smkpkyr"), function (i) grep(i, colnames(df), value = TRUE))
 outc <- c("v99elxioa", "v99erxioa", "v99rntcnt", "v99eddcf")
-d2 <- df[c(meta, xsec, unlist(long))][df$p01sxkoa != 0,]
+d2 <- df[c(meta, xsec, unlist(long))]
 
 ##### Data fixes and reformats
 # all discrete ints to factor
@@ -53,6 +53,8 @@ xs %<>% mutate(obcat = cut(bmi, breaks = c(min(bmi, na.rm = T),25,30,35, 999)),
                 a_se = (p02sex == 2)*age,
                 a2_se = (p02sex == 2)*agesq
               )
+for(i in c("obcat", "depcat", "pycat")) xs[[i]] <- factor(xs[[i]])
 xs$smknow <- xs$smkever <- xs$smoker 
+xs$obcat <- relevel(xs$obcat, ref = levels(xs$obcat)[2])
 levels(xs$smknow) <- c("Never", "Current", "Never", "Never")
 levels(xs$smkever) <- c("Never", "Ever", "Ever", "Never")
