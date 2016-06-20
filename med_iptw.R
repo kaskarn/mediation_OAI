@@ -9,8 +9,6 @@ fmatch <- function(v, A, l = NULL, mat = FALSE){
     if(mat){return(cbind(1:l,match(A, levels(A))))
     }else return(v[cbind(1:l,match(A, levels(A)))])
 }
-##### TODO: get total effect TE(M)
-
 med_iptw.mkdat <- function(orig_dat, A, M, Y, C = "", L = ""){
   #replicate input with parentheses
   C <- paste0("(",C,")")
@@ -50,17 +48,20 @@ med_iptw.mkdat <- function(orig_dat, A, M, Y, C = "", L = ""){
   plist <- med_iptw.mkprop(orig_dat, A, M, mlist)
   an_dat <- med_iptw.mkweight(orig_dat, plist)
 }
-med_iptw.decomp <- function(an_dat, A, M, Y, regtype = "linear", noint = FALSE, counter = NULL){
+
+
+med_iptw.decomp <- function(an_dat, A, M, Y, regtype = "gaussian", noint = FALSE, mlvl = NULL){
   #build models
-  med_iptw.mkymod <- function(dat, form, regtype){
-    ymod <- switch(regtype,
-               linear = lm(dat = an_dat, form, weights = ipw_med),
-               bin = glm(dat = an_dat, form, weights = ipw_med, family = binomial),
-               poiss = glm(dat = an_dat, form, weights = ipw_med, family = poisson)
-            )
-    return(ymod$coefficients)
+  med_iptw.mkymod <- function(dat, regtype, noint, Y, X, M){
+    #Make formula
+    if(noint == TRUE){ form <- as.formula(paste0(Y, "~", paste(X, M, sep = "+")))
+    }else form <- as.formula(paste0(Y, "~", paste(X, M, paste0(X, "*", M), sep = "+")))
+    
+    #models
+    ymod_cde <- glm(data = an_dat, form, weights = ipw_med, family = regtype)
+    ymod_te <- glm(data = an_dat, as.formula(paste0(Y, "~", X)), weights = ipw_conf, family = regtype)
+    return(list(cde = ymod_cde, te = ymod_te))
   }
-  
   #get lists of results
   med_iptw.break <- function(dat, A, M, noint, ycoef){
     alen <- levels(dat[[A]]) %>% length - 1 
@@ -79,24 +80,26 @@ med_iptw.decomp <- function(an_dat, A, M, Y, regtype = "linear", noint = FALSE, 
   }
   
   #get CDE(M) for all M's
-  med_iptw.cde <- function(coef_l, counter){
+  med_iptw.ints <- function(coef_l, mlvl){
     mlen <- length(coef_l[[2]])
-    if(is.null(counter)) counter <- rbind(rep(0, mlen), diag(mlen), rep(1/mlen, mlen))
-    fullb <- t(replicate(nrow(counter), coef_l[[1]])) + counter%*%coef_l[[3]]
+    if(is.null(mlvl)) mlvl <- rbind(rep(0, mlen), diag(mlen), rep(1/mlen, mlen))
+    fullb <- (t(replicate(nrow(mlvl), coef_l[[1]])) + mlvl%*%coef_l[[3]]) %>% as.matrix
     return(fullb)
   }
   
-  #Make formula
-  if(noint == TRUE){ form <- as.formula(paste0(Y, "~", paste(X, M, sep = "+")))
-  }else form <- as.formula(paste0(Y, "~", paste(X, M, paste0(X, "*", M), sep = "+")))
+  #Make model of Y
+  ymods <- med_iptw.mkymod(an_dat, regtype, noint, Y, X, M)
   
-  #Model
-  ycoef <- med_iptw.mkymod(an_dat, form, regtype)
   #Break into dummy coeffs
-  coef_med <- med_iptw.break(an_dat, A, M, noint, ycoef)
-  if(noint == TRUE) return(coef_med)
+  cde <- med_iptw.break(an_dat, A, M, noint, ymods$cde$coefficients)
+  te <- ymods$te$coefficients[-1]
   
-  cde_list <- med_iptw.cde(coef_med, counter)
+  #Return NDE and TE if noint
+  if(noint == TRUE) return(list(mods = ymods, cde = cde, te = te))
   
-  return(list(mod = ycoef, coef_med = coef_med, cde = cde_list))
+  #Get CDE(M) for each M if interaction
+  cde_ints <- med_iptw.ints(cde, mlvl)
+  
+  #Return CDE(M) and TE if interaction
+  return(list(mods = ymods, cde = cde_ints, te = te))
 }
