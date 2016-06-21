@@ -1,13 +1,13 @@
 # mediation_OAI
 
-rand_int : implements the random interventional analogue to direct and indirect natural effects
-ipw_med : implements calculations of controlled direct effect with IPTW, optionally setting M to different values or distributions.
-med_reg : implements regression-based calculation of CDE, NDE, and NIE
+####rand_int : implements the random interventional analogue to direct and indirect natural effects <br>
+####ipw_med : implements calculations of controlled direct effect with IPTW, optionally setting M to different values or distributions. <br>
+####med_reg : implements regression-based calculation of CDE, NDE, and NIE<br><br>
 
-Everything assumes 
-(1) No X -> Y unmeasured confounder
-(2) No M -> Y unmeasured confounder
+Everything assumes <br>
+1. No X -> Y unmeasured confounder <br>
+2. No M -> Y unmeasured confounder <br><br>
 
-Addtionally
-(3) med_reg assumes no exposure-induced M -> Y confounder
-(4) NDE and their randomized analogue assume no X -> M confounder
+Addtionally<br>
+3. med_reg assumes no exposure-induced M -> Y confounder <br>
+4. NDE and their randomized analogue assume no X -> M confounder <br>
