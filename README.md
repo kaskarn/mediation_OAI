@@ -11,3 +11,7 @@ Everything assumes <br>
 Addtionally<br>
 3. med_reg assumes no exposure-induced M -> Y confounder <br>
 4. NDE and their randomized analogue assume no X -> M confounder <br>
+
+
+###Reference.
+VanderWeele, T. (2015). Explanation in causal inference: methods for mediation and interaction. Oxford University Press.
