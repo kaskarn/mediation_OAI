@@ -1,63 +1,47 @@
-library(magrittr); library(mice)
-library(foreign); library(dplyr)
-library(reshape2); library(ipw)
-library(foreach); library(nnet)
+library(magrittr)
+library(nnet)
+library(dplyr)
+boot <- 1000
+#levels(xs$obcat) <- levels(xs$obcat)[c(1,1,3,4,5)]
 
-X <- "v00edcv" #categorical education
-xlen <- length(levels(dat[[X]]))-1
-M <- "obcat" # obesity categories. 
-Y <- "hspss"
-L <- "smoker" #smoking status
-C <- c("age", "agesq", "p02race", "p02sex", "ra_se")
-boot <- 10
-res <- array(NA, dim = c(boot, xlen, 3))
+res_multi <- list(
+  roa = med_multi(filter(xs, p01xrkoa != 0), Y = hspss, A = v00edcv, M = obcat + smoker + dtna + drnkamt, C = age + agesq + p02sex + p02race, boot = boot),
+  soa = med_multi(filter(xs, p01sxkoa != 0), Y = hspss, A = v00edcv, M = obcat + smoker + dtna + drnkamt, C = age + agesq + p02sex + p02race, boot = boot),
+  noa = med_multi(filter(xs, p01xrkoa == 0), Y = hspss, A = v00edcv, M = obcat + smoker + dtna + drnkamt, C = age + agesq + p02sex + p02race, boot = boot),
+  all = med_multi(xs, Y = hspss,  A = v00edcv, M = obcat + smoker + dtna + drnkamt, C = age + agesq + p02sex + p02race, boot = boot)
+)
 
-#### RANDOM INTERVENTIONAL ANALOGUE ######
+res_bmi <- list(
+  roa = med_iptw(filter(xs, p01xrkoa != 0), Y = hspss, A = v00edcv, M = obcat, L = smoker + dtna + drnkamt, C = age + agesq + p02sex + p02race, boot = boot),
+  soa = med_iptw(filter(xs, p01sxkoa != 0), Y = hspss, A = v00edcv, M = obcat, L = smoker + dtna + drnkamt, C = age + agesq + p02sex + p02race, boot = boot),
+  noa = med_iptw(filter(xs, p01xrkoa == 0), Y = hspss, A = v00edcv, M = obcat, L = smoker + dtna + drnkamt, C = age + agesq + p02sex + p02race, boot = boot),
+  all = med_iptw(xs, Y = hspss, A = v00edcv, M = obcat, L = smoker + dtna + drnkamt, C = age + agesq + p02sex + p02race, boot = boot)
+)
 
-pbar <- txtProgressBar(style = 3)
-for(i in 1:boot){
-  dat <- sample_frac(filter(xs, p01sxkoa != 0), 1, replace = TRUE)
-  while(min(table(dat[[X]])) < 50) dat <- sample_frac(xs, 1, replace = TRUE)
+res_bmi2 <- list(
+  roa = med_smean(filter(xs, p01xrkoa != 0), Y = hspss, A = v00edcv, M = bmi, L = smoker + dtna + drnkamt, C = age + agesq + p02sex + p02race, boot = boot),
+  soa = med_smean(filter(xs, p01sxkoa != 0), Y = hspss, A = v00edcv, M = bmi, L = smoker + dtna + drnkamt, C = age + agesq + p02sex + p02race, boot = boot),
+  noa = med_smean(filter(xs, p01xrkoa == 0), Y = hspss, A = v00edcv, M = bmi, L = smoker + dtna + drnkamt, C = age + agesq + p02sex + p02race, boot = boot),
+  all = med_smean(xs, Y = hspss, A = v00edcv, M = bmi, L = smoker + dtna + drnkamt, C = age + agesq + p02sex + p02race, boot = boot)
+)
   
-  rint_items <- rint_med.mkdata(dat, X = X, C = C, M = M, L = L)
-  dec <- rint_med.decompose(rint_items$an_dat, Y = Y, X = X)
-  res[i,,1] <- dec$nder
-  res[i,,2] <- dec$nier
-  res[i,,3] <- dec$ter
-  setTxtProgressBar(pbar, i/boot)
-}
-
-res95 <- lapply(1:3, function (i) apply(res[,,i], 2, quantile, probs = c(0.025, 0.5, 0.975), na.rm =TRUE))
-
-
-
-
-##### WEIGHTING-BASED METHOD FOR CDE #####
-
-test_0 <- med_iptw.mkdat(filter(xs, p01sxkoa == 0), A = X, M = M, Y = Y, C = C, L = L)
-test_1 <- med_iptw.mkdat(filter(xs, p01sxkoa != 0), A = X, M = M, Y = Y, C = C, L = L)
-test_a <- med_iptw.mkdat(xs, A = X, M = M, Y = Y, C = C, L = L)
-
-#res <- med_iptw.decomp(test, A = X, M = M, Y = Y)
-res_0_noint <- rbind(
-  med_iptw.decomp(test_0, A = X, M = M, Y = Y, noint = TRUE),
-  lm(data = test_0, hspss ~ v00edcv, weights = ipw_conf)$coefficients[-1]
-)
-res_1_noint <- rbind(
-  med_iptw.decomp(test_1, A = X, M = M, Y = Y, noint = TRUE),
-  lm(data = test_0, hspss ~ v00edcv, weights = ipw_conf)$coefficients[-1]
-)
-res_a_noint <- rbind(
-  med_iptw.decomp(test_a, A = X, M = M, Y = Y, noint = TRUE),
-  lm(data = test_0, hspss ~ v00edcv, weights = ipw_conf)$coefficients[-1]
+res_bmi2 <- list(
+  roa = med_smean(filter(xs, p01xrkoa != 0), Y = hspss, A = v00edcv, M = abcirc, L = smoker + dtna + drnkamt, C = age + agesq + p02sex + p02race, boot = boot),
+  soa = med_smean(filter(xs, p01sxkoa != 0), Y = hspss, A = v00edcv, M = abcirc, L = smoker + dtna + drnkamt, C = age + agesq + p02sex + p02race, boot = boot),
+  noa = med_smean(filter(xs, p01xrkoa == 0), Y = hspss, A = v00edcv, M = abcirc, L = smoker + dtna + drnkamt, C = age + agesq + p02sex + p02race, boot = boot),
+  all = med_smean(xs, Y = hspss, A = v00edcv, M = abcirc, L = smoker + dtna + drnkamt, C = age + agesq + p02sex + p02race, boot = boot)
 )
 
+res_smk <- list(
+  roa = med_iptw(filter(xs, p01xrkoa != 0), Y = hspss, A = v00edcv, M = smoker, C = age + agesq + p02sex + p02race, boot = boot),
+  soa = med_iptw(filter(xs, p01sxkoa != 0), Y = hspss, A = v00edcv, M = smoker, C = age + agesq + p02sex + p02race, boot = boot),
+  noa = med_iptw(filter(xs, p01xrkoa == 0), Y = hspss, A = v00edcv, M = smoker, C = age + agesq + p02sex + p02race, boot = boot),
+  all = med_iptw(xs, Y = hspss, A = v00edcv, M = smoker, C = age + agesq + p02sex + p02race, boot = boot)
+)
 
-
-##### Regression-based #####
-# X <- "bmi"
-# M <- "hsmss"
-# C <- confounders
-# 
-# test <- twoway.cont.cont(xs, X = "exposure", M = "bmi", Y = "hspss", C = confounders, mlvl = 25:30, noint = FALSE)
-# test <- twoway.cont.cont(xs, X = "exposure", M = "bmi", Y = "hspss", C = confounders, mlvl = 25:30, noint = FALSE)
+res_drk <- list(
+  roa = med_iptw(filter(xs, p01xrkoa != 0), Y = hspss, A = v00edcv, M = drnkamt, C = age + agesq + p02sex + p02race, boot = boot),
+  soa = med_iptw(filter(xs, p01sxkoa != 0), Y = hspss, A = v00edcv, M = drnkamt, C = age + agesq + p02sex + p02race, boot = boot),
+  noa = med_iptw(filter(xs, p01xrkoa == 0), Y = hspss, A = v00edcv, M = drnkamt, C = age + agesq + p02sex + p02race, boot = boot),
+  all = med_iptw(xs, Y = hspss, A = v00edcv, M = drnkamt, C = age + agesq + p02sex + p02race, boot = boot)
+)
